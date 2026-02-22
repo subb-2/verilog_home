@@ -11,9 +11,9 @@ module tb_dht11_control();
     reg echo;
     wire trigger;
     wire [3:0] fnd_digit;
-    wire [7:0] fnd_data;
+    wire [7:0] fnd_data; 
     wire dht_valid;
-    wire [3:0] dht_debug_led, btn_debug_led;
+    wire [10:0] dht_debug_led, btn_debug_led;
     wire dhtio;
 
     assign dhtio = (sensor_io_sel) ? 1'bz : dht11_sensor_io;
@@ -50,28 +50,11 @@ module tb_dht11_control();
     //    .dhtio(dhtio)
     //);
 
-   always #5 clk = ~clk;
+    always #5 clk = ~clk;
 
-    reg [39:0] test_data;
+    reg [39:0] dht11_sensor_data;
+    reg [39:0] dht11_sensor_data_fail;
     integer i;
-
-    // test data
-    task bit_send(input data);
-    begin
-        //Low
-        dht11_sensor_io = 1'b0;
-        #(50_000); 
-        
-        //High
-        dht11_sensor_io = 1'b1;
-        if (data) begin
-            #(70_000); // Logic '1' 
-        end else begin
-            #(30_000); // Logic '0'
-        end
-            
-    end
-    endtask
 
     initial begin
         #0;
@@ -89,54 +72,212 @@ module tb_dht11_control();
         btn_d = 0;
         rx = 1'b1;     // UART idle 보통 1
         echo = 1'b0;
+        i = 0;
+        dht11_sensor_io = 1'b0;
+        sensor_io_sel = 1'b1;
+        //huminity integral, decimal, temperature integral, decimal. checksum
+        //huminity 50.00 / temperature 32.00
+        dht11_sensor_data = {8'h32, 8'h00, 8'h19, 8'h00, 8'h4b};
+        dht11_sensor_data_fail = {8'h32, 8'h00, 8'h19, 8'h00, 8'h3c};
+        //저쪽에서 나오고 있으니까 테스트는 끊어놓는 것 
+        //동시에 나가면 X 나옴 
 
         //reset
         #20;
         rst = 0;
-        sw[1] = 1;
-        sw[5] = 1;
         #20;
+
+        sw[1] = 1;
+        sw[4] = 1;
+        // sw[2] = 1 : humidity
+        // sw[2] = 0 : temperature 
+
+        //success
+
         btn_r = 1;
-        #10_000_000;
+        #1_000_000;
         btn_r = 0;
 
         //19msec + 30usec
         //저쪽에서 끊으니까 내가 넣어줘야 함
-        #(1900*10*1000 + 30_000)
-        sensor_io_sel = 0;
+        //start signal + wait
+        #(1900 * 10 * 1000 + 30_000);
 
-        //SYNCL, SYNCH
-        dht11_sensor_io = 1'b0; 
+        //to output, sensor to fpga
+        sensor_io_sel   = 0; 
+
+        //sync_L, sync_H
+        dht11_sensor_io = 1'b0;
+        #(80_000);
+        dht11_sensor_io = 1'b1;
         #(80_000);
 
-        dht11_sensor_io = 1'b1; 
-        #(80_000);
+        //40bit data pattern
 
-        //test data
-        test_data = {8'h10, 8'h20, 8'h30, 8'h40, 8'ha0};
-
-        //40비트 데이터
         for (i = 39; i >= 0; i = i - 1) begin
-            bit_send(test_data[i]);
+            //data sync
+            dht11_sensor_io = 1'b0;
+            #(50_000);
+            //data value
+            if (dht11_sensor_data[i] == 0) begin
+                dht11_sensor_io = 1'b1;
+                #(28_000);
+            end else begin
+                dht11_sensor_io = 1'b1;
+                #(70_000);
+            end
         end
 
-        //전송 완료 후
         dht11_sensor_io = 1'b0;
-        #(50_000); //stop
-        sensor_io_sel = 1'b1; //다시 high
+        #(50_000);
+
+        //to output, fpga to sensor
+        sensor_io_sel = 1;
+
+        #100_000;
+
+// ==============================================
+
+        //valid fail
+
+        btn_r = 1;
+        #1_000_000;
+        btn_r = 0;
+
+        //19msec + 30usec
+        //저쪽에서 끊으니까 내가 넣어줘야 함
+        //start signal + wait
+        #(1900 * 10 * 1000 + 30_000);
+
+        //to output, sensor to fpga
+        sensor_io_sel   = 0; 
+
+        //sync_L, sync_H
+        dht11_sensor_io = 1'b0;
+        #(80_000);
         dht11_sensor_io = 1'b1;
+        #(80_000);
 
+        //40bit data pattern
+
+        for (i = 39; i >= 0; i = i - 1) begin
+            //data sync
+            dht11_sensor_io = 1'b0;
+            #(50_000);
+            //data value
+            if (dht11_sensor_data_fail[i] == 0) begin
+                dht11_sensor_io = 1'b1;
+                #(28_000);
+            end else begin
+                dht11_sensor_io = 1'b1;
+                #(70_000);
+            end
+        end
+
+        dht11_sensor_io = 1'b0;
+        #(50_000);
+
+        //to output, fpga to sensor
+        sensor_io_sel = 1;
+
+        #100_000;
+
+// ===============================================
+
+        //state fail
+
+        btn_r = 1;
+        #1_000_000;
+        btn_r = 0;
+
+        //19msec + 30usec
+        //저쪽에서 끊으니까 내가 넣어줘야 함
+        //start signal + wait
+        #(1900 * 10 * 1000 + 30_000);
+
+        //to output, sensor to fpga
+        sensor_io_sel   = 0; 
+
+        //sync_L, sync_H
+        dht11_sensor_io = 1'b0;
+        #(80_000);
+        dht11_sensor_io = 1'b1;
+        #(80_000);
+
+        //40bit data pattern
+
+        for (i = 30; i >= 0; i = i - 1) begin
+            //data sync
+            dht11_sensor_io = 1'b0;
+            #(50_000);
+            //data value
+            if (dht11_sensor_data[i] == 0) begin
+                dht11_sensor_io = 1'b1;
+                #(28_000);
+            end else begin
+                dht11_sensor_io = 1'b1;
+                #(70_000);
+            end
+        end
+
+        dht11_sensor_io = 1'b0;
+        #(50_000);
+
+        //to output, fpga to sensor
+        sensor_io_sel = 1;
+
+        #1_010_000_000; //1.1초 대기 
         
-        #200_000;
-       // if (dut.dht_valid) 
-       //     $display("SUCCESS: Humidity = %d.%d%%, Temperature = %d.%dC", dut.humidity[15:8], dut.humidity[7:0], dut.temperature[15:8], dut.temperature[7:0]);
-       // else 
-       //     $display("ERROR: Checksum mismatch or data not received! Valid bit is 0.");
+        //reset 이후 시간 보내기 자동 시작
+
+        rst = 1;
+        #20;
+        rst = 0;
+        #20;
+
+        #1_200_000_000;
+
+        #(1900 * 10 * 1000 + 30_000);
+
+        //to output, sensor to fpga
+        sensor_io_sel   = 0; 
+
+        //sync_L, sync_H
+        dht11_sensor_io = 1'b0;
+        #(80_000);
+        dht11_sensor_io = 1'b1;
+        #(80_000);
+
+        //40bit data pattern
+
+        for (i = 39; i >= 0; i = i - 1) begin
+            //data sync
+            dht11_sensor_io = 1'b0;
+            #(50_000);
+            //data value
+            if (dht11_sensor_data[i] == 0) begin
+                dht11_sensor_io = 1'b1;
+                #(28_000);
+            end else begin
+                dht11_sensor_io = 1'b1;
+                #(70_000);
+            end
+        end
+
+        dht11_sensor_io = 1'b0;
+        #(50_000);
+
+        //to output, fpga to sensor
+        sensor_io_sel = 1;
+
+        #100_000;
 
 
-        #1000;
+        repeat (60) begin
+            #1_000_000_000;   // 1초
+        end
+        
         $stop;
     end
-
 
 endmodule
